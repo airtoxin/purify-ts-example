@@ -1,0 +1,16 @@
+{
+  "name": "purify-ts-example",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "git@github.com:airtoxin/purify-ts-example.git",
+  "author": "airtoxin <airtoxin@icloud.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "tsc --watch"
+  },
+  "dependencies": {
+    "@types/node": "^13.13.4",
+    "purify-ts": "^0.14.1",
+    "typescript": "^3.8.3"
+  }
+}
