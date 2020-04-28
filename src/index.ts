@@ -1,4 +1,5 @@
 import { Codec, Either, EitherAsync, GetInterface, Left, number, Right, string } from "purify-ts";
+import ExtensibleCustomError from "extensible-custom-error";
 
 type UserCreationRequestParameter = GetInterface<typeof UserCreationRequestParameter>;
 const UserCreationRequestParameter = Codec.interface({
@@ -14,32 +15,22 @@ type User = {
 
 type UserResponse = User;
 
-type ErrorTypeOf<T extends (...arg: any[]) => Either<any, any>> = ReturnType<T> extends Either<infer L, any> ? L : never;
-
-type ValidationError = ReturnType<typeof ValidationError>;
-const ValidationError = (reason: string) => ({
-  type: "ValidationError" as const,
-  reason
-});
+class ValidationError extends ExtensibleCustomError {}
 
 const validate = (requestParams: unknown): Either<ValidationError, UserCreationRequestParameter> =>
   UserCreationRequestParameter.decode(requestParams)
-    .mapLeft(ValidationError)
+    .mapLeft(reason => new ValidationError(reason))
     .chain(rp => {
-      if (rp.age < 0) return Left(ValidationError(`age must be bigger than 0. got=${rp.age}`));
-      if (rp.name === "") return Left(ValidationError(`name must be non empty.`));
-      if (rp.name.length > 30) return Left(ValidationError(`name length must be shorter than 30. got=${rp.name}`));
+      if (rp.age < 0) return Left(new ValidationError(`age must be bigger than 0. got=${rp.age}`));
+      if (rp.name === "") return Left(new ValidationError(`name must be non empty.`));
+      if (rp.name.length > 30) return Left(new ValidationError(`name length must be shorter than 30. got=${rp.name}`));
       return Right(rp);
     });
 
-type UserCreationError = ErrorTypeOf<typeof UserCreationError>;
-const UserCreationError = (error: Error) => Left({
-  type: "UserCreationError" as const,
-  error
-});
+class UserCreationError extends ExtensibleCustomError {}
 
 const insertUser = async (userCreationRequestParameter: UserCreationRequestParameter): Promise<Either<UserCreationError, User>> =>
-  Math.random() > 0.1 ? Right({ id: (Math.random() * 10e8).toFixed(), ...userCreationRequestParameter }) : UserCreationError(new Error(`User insertion error`));
+  Math.random() > 0.5 ? Right({ id: (Math.random() * 10e8).toFixed(), ...userCreationRequestParameter }) : Left(new UserCreationError(`User insertion error`));
 
 type Request = {
   params: unknown;
@@ -50,20 +41,11 @@ type Response = {
   sendError: (code: number, message: any) => void;
 };
 
-const handleError = (res: Response) => (error: ValidationError | UserCreationError) => {
-  switch (error.type) {
-    case "ValidationError": {
-      return res.sendError(400, error.reason);
-    }
-    case "UserCreationError": {
-      return res.sendError(400, error.error);
-    }
-    default: {
-      return res.sendError(500, "Server Error");
-    }
-  }
+const handleError = (res: Response) => (error: Error) => {
+  if (error instanceof ValidationError) return res.sendError(400, error.message);
+  if (error instanceof UserCreationError) return res.sendError(503, error.message);
+  return res.sendError(500, "Internal server error");
 }
-
 export const handleRequest = (req: Request, res: Response): void => {
   EitherAsync<ValidationError | UserCreationError, UserResponse>(async ({ liftEither, fromPromise }) => {
     const requestParameter = await liftEither(validate(req.params));
@@ -72,7 +54,9 @@ export const handleRequest = (req: Request, res: Response): void => {
 };
 
 const res: Response = { sendBody: console.log, sendError: console.error };
-handleRequest({ params: {} }, res);
-handleRequest({ params: { name: "Alice" } }, res);
-handleRequest({ params: { name: "Bob", age: -10 } }, res);
-handleRequest({ params: { name: "Charlie", age: 20 } }, res);
+for (const _ of Array.from(Array(10))) {
+  handleRequest({ params: {} }, res);
+  handleRequest({ params: { name: "Alice" } }, res);
+  handleRequest({ params: { name: "Bob", age: -10 } }, res);
+  handleRequest({ params: { name: "Charlie", age: 20 } }, res);
+}
